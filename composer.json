@@ -1,0 +1,20 @@
+{
+    "name": "agilix/buzz-api-sample",
+    "description": "PHP sample and reusable client library for the Buzz API (OAuth 2.0 JWT client credentials).",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=7.4",
+        "ext-openssl": "*",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Agilix\\BuzzApi\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
