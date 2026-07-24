@@ -55,6 +55,14 @@ composer install    # optional
 > and set `curl.cainfo` and `openssl.cafile` in your `php.ini` to its path. Linux and macOS use
 > the system CA store and need no configuration.
 
+## Compatibility
+
+Written for **PHP 7.4** for broad reach (it is still common on shared hosting), and verified to
+run unchanged on every major version through the current release (**7.4 – 8.5**), with no
+deprecation notices on PHP 8.5. The code avoids PHP-8-removed behavior, and `composer.json`
+requires only `php: >=7.4` (no upper bound), so the newest PHP works without changes. Nothing
+here discourages running on the latest PHP.
+
 ## Configuration
 
 Configuration uses a **PHP config file** — the canonical plain-PHP convention. Copy
