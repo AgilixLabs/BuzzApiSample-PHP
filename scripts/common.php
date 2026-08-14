@@ -114,8 +114,23 @@ function read_line(string $prompt): ?string
 }
 
 // ── Buzz API calls ──────────────────────────────────────────────────────────
-// /cmd/* endpoints authenticate a session token via the _token query parameter.
-// /api/* (REST) endpoints authenticate via the Authorization: Bearer header.
+// Session tokens travel in an Authorization: Bearer header on both /cmd/* and /api/*
+// endpoints.  A _token query parameter is also accepted by /cmd/*, but a credential in
+// a URL is recorded by server and proxy access logs.
+// Buzz returns XML unless JSON is requested via Accept.
+
+/**
+ * @param list<string> $extra
+ * @return list<string>
+ */
+function buzz_auth_headers(?string $token, array $extra = []): array
+{
+    $headers = ['Accept: application/json'];
+    if ($token !== null && $token !== '') {
+        $headers[] = "Authorization: Bearer {$token}";
+    }
+    return array_merge($headers, $extra);
+}
 
 /**
  * @return array<string,mixed>|null
@@ -123,11 +138,8 @@ function read_line(string $prompt): ?string
 function buzz_post(string $server, string $cmd, $body, ?string $token = null): ?array
 {
     $url = "{$server}/cmd/{$cmd}";
-    if ($token !== null) {
-        $url .= '?' . http_build_query(['_token' => $token]);
-    }
     [$status, $decoded] = buzz_http('POST', $url, json_encode($body),
-        ['Content-Type: application/json', 'Accept: application/json']);
+        buzz_auth_headers($token, ['Content-Type: application/json']));
     return $decoded;
 }
 
@@ -137,14 +149,11 @@ function buzz_post(string $server, string $cmd, $body, ?string $token = null): ?
  */
 function buzz_get(string $server, string $cmd, array $params = [], ?string $token = null): ?array
 {
-    if ($token !== null) {
-        $params['_token'] = $token;
-    }
     $url = "{$server}/cmd/{$cmd}";
     if ($params) {
         $url .= '?' . http_build_query($params);
     }
-    [$status, $decoded] = buzz_http('GET', $url, null, ['Accept: application/json']);
+    [$status, $decoded] = buzz_http('GET', $url, null, buzz_auth_headers($token));
     return $decoded;
 }
 
@@ -228,6 +237,60 @@ function response_message(?array $resp): string
     return (string) ($inner['message'] ?? '');
 }
 
+/**
+ * The per-entity result of a multi-object command (CreateUsers2, DeleteUsers).
+ *
+ * Those commands report each entity's outcome under response.responses.response, while
+ * the OUTER code is OK whenever the request was merely well formed.  A per-entity
+ * AccessDenied therefore arrives inside an "OK" envelope, so the outer code alone
+ * cannot tell you whether the entity was actually created or deleted.  'code' is ''
+ * when the response carries no per-entity result at all.
+ *
+ * @return array{code:string,message:string,userid:string}
+ */
+function item_result(?array $resp): array
+{
+    $empty = ['code' => '', 'message' => '', 'userid' => ''];
+    $inner = (is_array($resp) && isset($resp['response']) && is_array($resp['response'])) ? $resp['response'] : ($resp ?? []);
+    if (!is_array($inner) || !isset($inner['responses']) || !is_array($inner['responses'])) {
+        return $empty;
+    }
+    $node = $inner['responses']['response'] ?? null;
+    if (is_array($node) && array_is_list($node)) {
+        $node = $node[0] ?? null;
+    }
+    if (!is_array($node)) {
+        return $empty;
+    }
+    return [
+        'code'    => (string) ($node['code'] ?? ''),
+        'message' => (string) ($node['message'] ?? ''),
+        'userid'  => (string) ($node['user']['userid'] ?? ''),
+    ];
+}
+
+/**
+ * The short-lived token login3 returns alongside SecondFactorRequired.
+ *
+ * Observed shape: response.token, duplicated at response.body.token.  There is no
+ * "user" node on that response, so response.user.token (where the session token lives
+ * on a *successful* login) does not exist yet.  remembermfa.token is deliberately
+ * ignored: it remembers a device and cannot complete this login.
+ */
+function second_factor_token(?array $resp): string
+{
+    $inner = (is_array($resp) && isset($resp['response']) && is_array($resp['response'])) ? $resp['response'] : ($resp ?? []);
+    if (!is_array($inner)) {
+        return '';
+    }
+    foreach ([$inner['user']['token'] ?? null, $inner['token'] ?? null, $inner['body']['token'] ?? null] as $candidate) {
+        if (is_string($candidate) && $candidate !== '') {
+            return $candidate;
+        }
+    }
+    return '';
+}
+
 // ── Admin login (login3, with optional MFA) ─────────────────────────────────────
 function admin_login(string $server): string
 {
@@ -240,13 +303,37 @@ function admin_login(string $server): string
             ['request' => ['cmd' => 'login3', 'username' => $username, 'password' => $password]]);
         $code = response_code($resp);
 
-        // MFA branch.  Exact command/field names depend on server configuration.
-        if ($code !== '' && preg_match('/(factor|mfa|otp|challenge|verify|multifactor)/i', $code)) {
-            echo " MFA required.\n";
-            $mfa = prompt_required('MFA / one-time code', '', 'BUZZ_ADMIN_MFA');
-            $partial = $resp['response']['token'] ?? ($resp['token'] ?? '');
-            $resp = buzz_post($server, 'verifylogin',
-                ['request' => ['cmd' => 'verifylogin', 'token' => $partial, 'code' => $mfa]]);
+        // Multi-factor authentication.  login3 answers SecondFactorRequired when the
+        // password was correct but the account has MFA configured, and returns a
+        // short-lived token that is presented in an Authorization: Bearer header to
+        // secondfactorauthenticate, which returns the real session token.  Putting the
+        // token in the request body instead is ignored: AccessDenied userId='-1'.
+        //   https://api.agilixbuzz.com/docs/entry/Command/Login3.md
+        //   https://api.agilixbuzz.com/docs/entry/Command/SecondFactorAuthenticate.md
+        if ($code === 'SecondFactorConfigurationNowRequired') {
+            echo "\n  This account must configure multi-factor authentication before it can\n";
+            echo "  be used.  Complete MFA setup in Buzz, then re-run this script.\n";
+            if (getenv('BUZZ_ADMIN_PASSWORD') !== false) {
+                fail('Admin account requires multi-factor authentication setup.');
+            }
+            echo "  Press Ctrl+C to abort.\n\n";
+            continue;
+        }
+
+        if ($code === 'SecondFactorRequired') {
+            echo " multi-factor authentication required.\n";
+            $partial = second_factor_token($resp);
+            if ($partial === '') {
+                echo "\n  Buzz asked for a second factor but no token could be found in its reply.\n";
+                if (getenv('BUZZ_ADMIN_PASSWORD') !== false) {
+                    fail('No second-factor token was returned.');
+                }
+                echo "  Press Ctrl+C to abort.\n\n";
+                continue;
+            }
+            $otp = prompt_required('One-time code from your authenticator app or email', '', 'BUZZ_ADMIN_MFA');
+            $resp = buzz_post($server, 'secondfactorauthenticate',
+                ['request' => ['cmd' => 'secondfactorauthenticate', 'otp' => $otp]], $partial);
             $code = response_code($resp);
         }
 

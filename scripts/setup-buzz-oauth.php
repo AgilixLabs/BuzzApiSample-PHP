@@ -41,7 +41,7 @@ function setup_main(array $argv): int
 
     out_section('Step 1: Buzz Server URL');
     if ($server === '') {
-        $server = prompt_required('Buzz API server URL (e.g. https://api.agilixbuzz.com)', '', 'BUZZ_SERVER_URL');
+        $server = prompt_required('Buzz API server URL (e.g. https://backgroundapi.agilixbuzz.com)', '', 'BUZZ_SERVER_URL');
     }
     $server = rtrim($server, '/');
     echo "  Server: {$server}\n";
@@ -148,6 +148,21 @@ function get_or_create_account(string $server, string $adminToken): string
     if (response_code($resp) !== 'OK') {
         fail('CreateUsers2 failed (code: ' . response_code($resp) . ').  Response: ' . json_encode($resp));
     }
+    // The outer OK only means the request parsed; CreateUsers2 reports the outcome for
+    // the user it created under responses.response, so a denial arrives inside an "OK"
+    // envelope and must be checked separately.
+    $item = item_result($resp);
+    if ($item['code'] !== '' && $item['code'] !== 'OK') {
+        $detail = $item['message'] !== '' ? " - {$item['message']}" : '';
+        if ($item['code'] === 'AccessDenied') {
+            fail("CreateUsers2 was denied (code: {$item['code']}{$detail}).
+"
+                . "  The admin account needs the CreateUser right on domain {$targetDomain}.
+"
+                . '  Grant it that right (and UpdateUser, so it can register the OAuth key), then re-run.');
+        }
+        fail("CreateUsers2 failed for the requested user (code: {$item['code']}{$detail}).");
+    }
     $userId = extract_created_userid($resp);
     if ($userId === '') {
         fail('CreateUsers2 succeeded but returned no userid.  Response: ' . json_encode($resp));
@@ -161,10 +176,17 @@ function get_or_create_account(string $server, string $adminToken): string
  */
 function list_domains(string $server, string $token): array
 {
-    $resp = buzz_get($server, 'getdomains', [], $token);
+    // ListDomains, not "getdomains" -- the latter is not a Buzz command and always
+    // answered "Unknown API command", so this silently returned [] on every run.
+    // domainid=0 means "every domain this account has ReadDomain rights on"; limit=0
+    // lifts the default 100-domain cap (capped server-side at 1000 for domainid=0).
+    //   https://api.agilixbuzz.com/docs/entry/Command/ListDomains.md
+    $resp = buzz_get($server, 'listdomains', ['domainid' => 0, 'limit' => 0], $token);
     if (response_code($resp) !== 'OK') {
         return [];
     }
+    // When the account can read no domains the server answers OK with "domains":{},
+    // so every level has to tolerate a missing or empty node.
     $domains = $resp['response']['domains']['domain'] ?? [];
     if (isset($domains['id']) || isset($domains['name'])) {  // single object, not a list
         $domains = [$domains];
@@ -172,7 +194,8 @@ function list_domains(string $server, string $token): array
     $result = [];
     foreach ($domains as $d) {
         if (is_array($d)) {
-            $result[] = [(string) ($d['id'] ?? ($d['domainid'] ?? '')), (string) ($d['name'] ?? '')];
+            // The Domain schema names the identifier "id"; "domainid" is what you *send*.
+            $result[] = [(string) ($d['id'] ?? ''), (string) ($d['name'] ?? '')];
         }
     }
     return $result;
@@ -189,7 +212,8 @@ function extract_created_userid(?array $resp): string
         $inner = $inner[0];
     }
     $user = is_array($inner) ? ($inner['user'] ?? []) : [];
-    return (string) ($user['userid'] ?? ($user['id'] ?? ''));
+    // The CreateUsers2 response documents this as "userid".
+    return (string) ($user['userid'] ?? '');
 }
 
 function default_kid(): string

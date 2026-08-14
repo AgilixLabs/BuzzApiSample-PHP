@@ -9,7 +9,7 @@
 
 return [
     // Buzz API server URL (no trailing slash).
-    'serverUrl' => 'https://api.agilixbuzz.com',
+    'serverUrl' => 'https://backgroundapi.agilixbuzz.com',
 
     // Included in the User-Agent header so Agilix support can identify your integration.
     'contactInformation' => '+https://example.com/; admin@example.com',

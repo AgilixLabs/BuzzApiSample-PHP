@@ -133,6 +133,6 @@ if (realpath($argv[0] ?? '') === realpath(__FILE__)) {
     echo "  Private key : {$privPath}\n";
     echo "  Public key  : {$pubPath}\n\n";
     echo "Next step: register the public key with Buzz.\n";
-    echo "  php scripts/register-buzz-oauth-key.php -s https://api.agilixbuzz.com -u <userid> -k <kid> -p public_key.pem\n\n";
+    echo "  php scripts/register-buzz-oauth-key.php -s https://backgroundapi.agilixbuzz.com -u <userid> -k <kid> -p public_key.pem\n\n";
     echo "IMPORTANT: Never commit private_key.pem to source control.\n";
 }
