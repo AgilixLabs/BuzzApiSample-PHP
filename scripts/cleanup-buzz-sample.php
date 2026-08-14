@@ -75,10 +75,16 @@ function cleanup_main(array $argv): int
 
     echo "\n-- Deleting Application Identity account (userid: {$oauthUserId}) --\n";
     $resp = buzz_post($server, 'deleteusers', ['requests' => ['user' => [['userid' => $oauthUserId]]]], $adminToken);
-    if (response_code($resp) === 'OK') {
+    // The per-user outcome is authoritative.  The OUTER code is OK whenever the request
+    // was merely well formed, so checking it first would report success for a delete
+    // that was actually denied or whose target did not exist.
+    $delItem = item_result($resp);
+    $delCode = $delItem['code'] !== '' ? $delItem['code'] : response_code($resp);
+    $delDetail = $delItem['message'] !== '' ? " - {$delItem['message']}" : '';
+    if ($delCode === 'OK') {
         echo "Application Identity account deleted.\n";
     } else {
-        fwrite(STDERR, 'Warning: delete returned code "' . response_code($resp) . "\". Continuing.\n");
+        fwrite(STDERR, 'Warning: delete returned code "' . $delCode . '"' . $delDetail . ". Continuing.\n");
     }
 
     echo "\n-- Removing local files --------------------------------\n";

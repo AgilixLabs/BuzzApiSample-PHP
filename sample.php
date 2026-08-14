@@ -63,7 +63,9 @@ function run_sample(BuzzApiClient $client): void
     $user = $userNode['user'] ?? [];
 
     // This server returns the identifier as "id"; older servers use "userid".
-    $userId = $user['userid'] ?? ($user['id'] ?? null);
+    // The User schema names this "id".  ("userid" is the CreateUsers2 *response* field
+    // for a newly created user - a different command, not an alias here.)
+    $userId = $user['id'] ?? null;
     printf("Authenticated as user %s (\"%s %s\", userid: %s)\n",
         $user['username'] ?? '', $user['firstname'] ?? '', $user['lastname'] ?? '', $userId ?? '');
     $domainId = $user['domainid'] ?? null;
