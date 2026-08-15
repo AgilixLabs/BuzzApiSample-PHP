@@ -178,7 +178,7 @@ final class BuzzApiClient
      * Verify that a Buzz JSON response indicates success.
      *
      * @param array|null $responseJson         The decoded response to check.
-     * @param bool       $checkChildResponses  Also verify nested child responses (batch APIs).
+     * @param bool       $checkChildResponses  Also verify nested child responses (multi-object commands such as CreateUsers2).
      * @return array The verified response node.
      * @throws BuzzApiException if the response code is not 'OK'.
      */

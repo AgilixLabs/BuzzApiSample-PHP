@@ -72,7 +72,7 @@ script generate it. The file returns an associative array:
 ```php
 <?php
 return [
-    'serverUrl'              => 'https://api.agilixbuzz.com',
+    'serverUrl'              => 'https://backgroundapi.agilixbuzz.com',
     'contactInformation'     => '+https://example.com/; admin@example.com',
     'applicationInformation' => 'MyApp',
     'oauthUserId'            => '12345678',
@@ -134,7 +134,7 @@ Choose a **Key ID** (`kid`), e.g. `2025-q2`. Allowed characters: ASCII letters, 
 
 ```bash
 php scripts/register-buzz-oauth-key.php \
-    -s https://api.agilixbuzz.com \
+    -s https://backgroundapi.agilixbuzz.com \
     -u 12345678 \
     -k 2025-q2 \
     -p public_key.pem
@@ -161,7 +161,7 @@ require __DIR__ . '/bootstrap.php';   // or vendor/autoload.php
 use Agilix\BuzzApi\BuzzApiClient;
 
 $client = BuzzApiClient::fromPemFile(
-    'https://api.agilixbuzz.com',
+    'https://backgroundapi.agilixbuzz.com',
     'MyApp/1.0 (PHP; MyApp; admin@example.com)',
     '12345678',        // oauthUserId
     '2025-q2',         // oauthKid
@@ -175,7 +175,7 @@ $domain = $client->verifyResponse($client->jsonRequest('GET', 'getdomain2', ['do
 
 `jsonRequest($method, $cmd, $params, $jsonBody, $includeToken)` returns the decoded JSON response.
 `verifyResponse($node)` throws `Agilix\BuzzApi\BuzzApiException` unless `response.code === "OK"`
-(and recursively checks child responses from batch APIs).
+(and recursively checks child responses from multi-object commands such as CreateUsers2).
 
 ---
 
