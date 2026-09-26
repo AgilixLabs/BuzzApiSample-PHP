@@ -9,6 +9,9 @@
         "ext-curl": "*",
         "ext-json": "*"
     },
+    "suggest": {
+        "ext-dom": "Parses XML responses; the client requests JSON, but some error paths may return XML"
+    },
     "autoload": {
         "psr-4": {
             "Agilix\\BuzzApi\\": "src/"

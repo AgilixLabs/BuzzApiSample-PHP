@@ -5,7 +5,7 @@ OAuth 2.0 authentication, automatic token refresh, exponential backoff, and rate
 compliance so your integration code can focus on business logic.
 
 Targets **PHP 7.4+** for broad compatibility. Uses only the bundled `openssl`, `curl`, and
-`json` extensions — **no Composer dependencies**.
+`json` extensions (plus `dom` if the server ever answers with XML) — **no Composer dependencies**.
 
 ## Authentication
 
@@ -34,15 +34,40 @@ The sample is intentionally read-only — it can be run repeatedly without modif
 **BuzzApiClient** simplifies integration by:
 - Managing OAuth tokens automatically — requesting and refreshing Bearer tokens as needed.
 - Retrying transient failures with exponential backoff (1 s → 64 s, up to 5 retries).
-- Honouring `Retry-After` and `X-RateLimit-Reset` headers from the server.
+- Handling throttling (rate limits, time limits, backend pressure) — see
+  [Throttling and backend pressure](#throttling-and-backend-pressure).
 - Providing `jsonRequest` and `verifyResponse` helpers for common JSON API patterns.
+
+### Throttling and backend pressure
+
+Most Buzz API commands report errors, throttles included, as **HTTP 200** with a code in the
+XML/JSON response envelope (`response.code`). REST-style endpoints use real HTTP status codes.
+`BuzzApiClient` handles both, so it keeps working as commands move to REST conventions:
+
+- **Detection** — a request counts as throttled if the HTTP status is 429 or 503, *or* the envelope
+  code is one of `TimeLimit`, `RateLimit`, `BackendPressure`, `ServerOverwhelmed`, `RetryLater`,
+  `LimitExceeded`, `TooManyRequests`, or `Service Unavailable` / `ServiceUnavailable` (sent when the
+  server sheds load before authentication). XML responses are parsed as well as JSON.
+- **How long to wait** — `Retry-After` (sent even with HTTP 200), then `X-RateLimit-Reset`
+  (seconds until the window resets), then exponential backoff with jitter. The client waits as long
+  as the server asks, up to 10 minutes. If the server asks for longer, the request fails straight away
+  rather than retrying early, because an early retry counts against the limit again.
+- **Client-wide back-off** — once the server throttles one request, every later request on that
+  `BuzzApiClient` instance (including OAuth token requests) waits out the same window.
+- **Batch and multi-object commands** — the outer code can be `OK` while individual items are
+  throttled. `verifyResponse` then throws `Agilix\BuzzApi\BuzzApiThrottledException`; call
+  `getThrottledItemIndexes()` to resubmit just those items. The full response is in `getResponse()`.
+- **Retries used up** — `jsonRequest` throws `BuzzApiThrottledException`, which extends
+  `BuzzApiException`. Its `getStatusCode()` is 429 or 503 even when the server sent HTTP 200.
+  `getThrottleCode()` and `getRetryAfter()` (seconds) are also set.
 
 ---
 
 ## Requirements
 
 - PHP 7.4 or newer with the `openssl`, `curl`, and `json` extensions (all bundled with standard
-  PHP builds).
+  PHP builds). The `dom` extension is needed only if the server answers with XML
+  instead of the JSON the client requests.
 - Optionally [Composer](https://getcomposer.org/) — running `composer install` generates the PSR-4
   autoloader, but the sample also works without it (a built-in fallback autoloader is used).
 
@@ -176,6 +201,8 @@ $domain = $client->verifyResponse($client->jsonRequest('GET', 'getdomain2', ['do
 `jsonRequest($method, $cmd, $params, $jsonBody, $includeToken)` returns the decoded JSON response.
 `verifyResponse($node)` throws `Agilix\BuzzApi\BuzzApiException` unless `response.code === "OK"`
 (and recursively checks child responses from multi-object commands such as CreateUsers2).
+A throttled response or child response throws `BuzzApiThrottledException` instead — see
+[Throttling and backend pressure](#throttling-and-backend-pressure).
 
 ---
 
