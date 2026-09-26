@@ -755,11 +755,21 @@ final class BuzzApiClient
 
     private static function isThrottleCode(?string $code): bool
     {
+        return self::codeInList($code, self::THROTTLE_CODES);
+    }
+
+    /**
+     * Whether an envelope code is in a list of codes, ignoring case.
+     *
+     * @param list<string> $codes
+     */
+    private static function codeInList(?string $code, array $codes): bool
+    {
         if ($code === null) {
             return false;
         }
-        foreach (self::THROTTLE_CODES as $throttleCode) {
-            if (strcasecmp($code, $throttleCode) === 0) {
+        foreach ($codes as $listed) {
+            if (strcasecmp($code, $listed) === 0) {
                 return true;
             }
         }
@@ -776,7 +786,7 @@ final class BuzzApiClient
         if ($status === 429 || $status === 503) {
             return $status;
         }
-        return in_array($code, self::THROTTLE_CODES_503, true) ? 503 : 429;
+        return self::codeInList($code, self::THROTTLE_CODES_503) ? 503 : 429;
     }
 
     /**
