@@ -20,12 +20,18 @@ require_once __DIR__ . '/bootstrap.php';
 
 use Agilix\BuzzApi\BuzzApiClient;
 
+// Replace YOUR_APPLICATION_NAME with your application's name and version, such as 'AcmeRosterSync/1.0'.
+// It is how Agilix support identifies your integration. Do not include the word "Buzz": a User-Agent
+// containing it is treated as one of Agilix's own applications.
+const APPLICATION_NAME = YOUR_APPLICATION_NAME;
+
 function main(): void
 {
     $config = buzz_load_config();
 
     $userAgent = sprintf(
-        'BuzzApiClient/1.0.0 (PHP; %s; %s)',
+        '%s (PHP; %s; %s)',
+        APPLICATION_NAME,
         $config['applicationInformation'],
         $config['contactInformation']
     );

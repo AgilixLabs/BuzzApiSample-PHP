@@ -43,7 +43,8 @@ function setup_main(array $argv): int
     if ($server === '') {
         $server = prompt_required('Buzz API server URL (e.g. https://backgroundapi.agilixbuzz.com)', '', 'BUZZ_SERVER_URL');
     }
-    $server = rtrim($server, '/');
+    // Refuse a deprecated endpoint host name before asking for a password.
+    $server = check_server_url($server);
     echo "  Server: {$server}\n";
 
     out_section('Step 2: Admin Login');
@@ -145,6 +146,7 @@ function get_or_create_account(string $server, string $adminToken): string
 
     echo "\nCreating Application Identity account '{$username}'...";
     $resp = buzz_post($server, 'createusers2', ['requests' => ['user' => [$user]]], $adminToken);
+    fail_if_deprecated($resp);
     if (response_code($resp) !== 'OK') {
         fail('CreateUsers2 failed (code: ' . response_code($resp) . ').  Response: ' . json_encode($resp));
     }
@@ -180,8 +182,9 @@ function list_domains(string $server, string $token): array
     // answered "Unknown API command", so this silently returned [] on every run.
     // domainid=0 means "every domain this account has ReadDomain rights on"; limit=0
     // lifts the default 100-domain cap (capped server-side at 1000 for domainid=0).
-    //   https://api.agilixbuzz.com/docs/entry/Command/ListDomains.md
+    //   https://interactiveapi.agilixbuzz.com/docs/entry/Command/ListDomains.md
     $resp = buzz_get($server, 'listdomains', ['domainid' => 0, 'limit' => 0], $token);
+    fail_if_deprecated($resp);
     if (response_code($resp) !== 'OK') {
         return [];
     }

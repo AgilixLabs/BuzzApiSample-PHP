@@ -8,7 +8,9 @@
 // "buzz-config.php" is gitignored — never commit it.
 
 return [
-    // Buzz API server URL (no trailing slash).
+    // Buzz API server URL (no trailing slash).  Use the background endpoint below for
+    // background processing, or https://interactiveapi.agilixbuzz.com for requests a
+    // user is waiting on.  Do not use api.agilixbuzz.com: it is deprecated and refused.
     'serverUrl' => 'https://backgroundapi.agilixbuzz.com',
 
     // Included in the User-Agent header so Agilix support can identify your integration.

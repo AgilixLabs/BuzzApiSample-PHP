@@ -36,7 +36,8 @@ function main(array $argv): int
         fwrite(STDERR, "Error: -s, -u, -k and -p are all required.\n");
         return 1;
     }
-    $server = rtrim($server, '/');
+    // Refuse a deprecated endpoint host name before asking for the admin token.
+    $server = check_server_url($server);
     if (!preg_match('/^[A-Za-z0-9._-]{1,128}$/', $kid)) {
         fwrite(STDERR, "Error: invalid kid. Allowed: ASCII letters, digits, -, _, .  Max 128 chars.\n");
         return 1;

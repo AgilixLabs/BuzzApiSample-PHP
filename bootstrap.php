@@ -72,6 +72,14 @@ function buzz_load_config(): array
         exit(1);
     }
 
+    // Refuse a deprecated endpoint host name (api.agilixbuzz.com) with what to use instead.
+    try {
+        \Agilix\BuzzApi\BuzzApiClient::checkServerUrl((string) $config['serverUrl']);
+    } catch (InvalidArgumentException $e) {
+        fwrite(STDERR, 'serverUrl in buzz-config.php: ' . $e->getMessage() . "\n");
+        exit(1);
+    }
+
     // Normalise: ensure all known keys exist.
     $result = [];
     foreach (BUZZ_CONFIG_KEYS as $key) {

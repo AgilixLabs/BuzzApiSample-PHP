@@ -75,6 +75,7 @@ function cleanup_main(array $argv): int
 
     echo "\n-- Deleting Application Identity account (userid: {$oauthUserId}) --\n";
     $resp = buzz_post($server, 'deleteusers', ['requests' => ['user' => [['userid' => $oauthUserId]]]], $adminToken);
+    fail_if_deprecated($resp);
     // The per-user outcome is authoritative.  The OUTER code is OK whenever the request
     // was merely well formed, so checking it first would report success for a delete
     // that was actually denied or whose target did not exist.

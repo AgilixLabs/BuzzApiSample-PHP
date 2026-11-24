@@ -74,6 +74,21 @@ final class BuzzApiClient
         501, 505, 506, 508, 510, 511,
     ];
 
+    /**
+     * The original, single API endpoint.  It is deprecated for integrations: Buzz
+     * refuses it (code "ApiDeprecated") for users and domains created after the
+     * deprecation was enforced.  Use the background endpoint for background
+     * processing, or the interactive endpoint for requests a user is waiting on.
+     *   https://interactiveapi.agilixbuzz.com/docs/entry/Concept/ApiDeprecation.md
+     */
+    public const LEGACY_API_HOSTS = ['api.agilixbuzz.com'];
+
+    /**
+     * The response code Buzz gives a request that used a deprecated command,
+     * endpoint host name or kind of sign-in.  It is never worth retrying.
+     */
+    private const DEPRECATED_CODE = 'ApiDeprecated';
+
     /** @var string */
     private $serverUrl;
     /** @var string */
@@ -115,6 +130,7 @@ final class BuzzApiClient
      * @param string $oauthKid    Key id (kid) chosen when the public key was registered.
      * @param \OpenSSLAsymmetricKey|resource $privateKey RSA private key (see fromPemFile()).
      * @param array  $options      verbose(bool), timeout(int seconds), logger(callable).
+     * @throws \InvalidArgumentException if a required value is missing, or serverUrl names a deprecated endpoint (see checkServerUrl()).
      */
     public function __construct(
         string $serverUrl,
@@ -134,7 +150,7 @@ final class BuzzApiClient
             throw new \InvalidArgumentException('privateKey is required');
         }
 
-        $this->serverUrl = rtrim(trim($serverUrl), '/');
+        $this->serverUrl = self::checkServerUrl($serverUrl);
         $this->userAgent = $userAgent;
         $this->oauthUserId = $oauthUserId;
         $this->oauthKid = $oauthKid;
@@ -143,6 +159,28 @@ final class BuzzApiClient
         $this->timeoutMs = (int) (($options['timeout'] ?? 600) * 1000);
         $this->logger = $options['logger'] ?? null;
         $this->tokenEndpoint = $this->serverUrl . '/api/oauth/token';
+    }
+
+    /**
+     * Return $serverUrl trimmed, refusing a deprecated endpoint host name.
+     *
+     * @throws \InvalidArgumentException if the URL names a host in LEGACY_API_HOSTS.
+     */
+    public static function checkServerUrl(string $serverUrl): string
+    {
+        $url = rtrim(trim($serverUrl), '/');
+        // parse_url only finds a host after "//", so a URL typed without a scheme is given one.
+        $host = parse_url(strpos($url, '//') === false ? '//' . $url : $url, PHP_URL_HOST);
+        $host = is_string($host) ? strtolower(rtrim($host, '.')) : '';
+        if (in_array($host, self::LEGACY_API_HOSTS, true)) {
+            throw new \InvalidArgumentException(
+                "{$host} is deprecated for API integrations, and Buzz refuses it for new users and domains. "
+                . 'Use the background endpoint (https://backgroundapi.agilixbuzz.com) for background processing, '
+                . 'or the interactive endpoint (https://interactiveapi.agilixbuzz.com) for requests a user is waiting on. '
+                . "See 'API Deprecation' and 'API Time Limiting' in the Buzz API documentation."
+            );
+        }
+        return $url;
     }
 
     /**
@@ -186,6 +224,8 @@ final class BuzzApiClient
      * @return array|null The decoded JSON response (an XML response is converted
      *                    to the same shape), or null if the body was empty.
      * @throws BuzzApiThrottledException if the request is still throttled after retrying.
+     * @throws BuzzApiDeprecatedException if the OAuth token request was refused as deprecated.  A deprecated
+     *         command is returned like any other response; verifyResponse() throws for it.
      * @throws BuzzApiException for other failures, including a success body that cannot be parsed.
      */
     public function jsonRequest(
@@ -233,6 +273,8 @@ final class BuzzApiClient
      * @return array The verified response node.
      * @throws BuzzApiThrottledException if the response, or any of its child responses, was throttled.
      *         For child responses, getThrottledItemIndexes() lists the items to resubmit.
+     * @throws BuzzApiDeprecatedException if the response, or any of its child responses, was refused
+     *         because it used something deprecated (code 'ApiDeprecated').  Do not retry.
      * @throws BuzzApiException if the response code is not 'OK'.
      */
     public function verifyResponse(?array $responseJson, bool $checkChildResponses = true): array
@@ -255,6 +297,12 @@ final class BuzzApiClient
                 throw new BuzzApiThrottledException(
                     "Buzz API call was throttled ({$code}): {$redacted}",
                     $code, $responseJson, [], null, self::throttleStatusCode(200, $code)
+                );
+            }
+            if ($code === self::DEPRECATED_CODE) {
+                $message = self::stringOrNull($toVerify['message'] ?? null);
+                throw new BuzzApiDeprecatedException(
+                    'Buzz refused a deprecated API: ' . ($message !== null && $message !== '' ? $message : $redacted)
                 );
             }
             throw new BuzzApiException("Buzz API call failed. Expected response.code to be OK, found: {$redacted}");
@@ -371,6 +419,19 @@ final class BuzzApiClient
                     throw new BuzzApiThrottledException(
                         "OAuth token request was throttled (HTTP {$status}): {$body}",
                         $oauthError, null, [], $serverWait, self::throttleStatusCode($status, null)
+                    );
+                }
+
+                // The token endpoint reports a deprecated endpoint host name in the
+                // OAuth error format.  Retrying cannot help, so this is checked
+                // before any retry.
+                if ($oauthError === 'unauthorized_client') {
+                    $this->log('error', "OAuth token request failed: {$status} {$body}");
+                    $description = self::stringOrNull($errorJson['error_description'] ?? null);
+                    throw new BuzzApiDeprecatedException(
+                        'Buzz refused the OAuth token request: '
+                        . ($description !== null && $description !== '' ? $description : $body),
+                        $status
                     );
                 }
 

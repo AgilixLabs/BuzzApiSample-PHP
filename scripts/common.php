@@ -36,6 +36,20 @@ function fail(string $msg): void
     exit(1);
 }
 
+/**
+ * Return the server URL trimmed, stopping with what to use instead when it names
+ * a deprecated endpoint host name (api.agilixbuzz.com).
+ */
+function check_server_url(string $server): string
+{
+    try {
+        return \Agilix\BuzzApi\BuzzApiClient::checkServerUrl($server);
+    } catch (InvalidArgumentException $e) {
+        fail($e->getMessage());
+    }
+    return '';  // not reached: fail() exits
+}
+
 // ── Prompts (with environment-variable fallbacks) ──────────────────────────────
 function prompt_required(string $label, string $default = '', ?string $env = null): string
 {
@@ -291,9 +305,37 @@ function second_factor_token(?array $resp): string
     return '';
 }
 
+/**
+ * Stop when Buzz refused a call (or the one entity of a multi-object call) as
+ * deprecated.  Buzz refuses a deprecated command, endpoint host name or sign-in for
+ * new users and domains with the code ApiDeprecated and a message naming the
+ * replacement.  Trying again cannot help, so show what to use instead.
+ *
+ * @param array<string,mixed>|null $resp
+ */
+function fail_if_deprecated(?array $resp): void
+{
+    $message = null;
+    if (response_code($resp) === 'ApiDeprecated') {
+        $message = response_message($resp);
+    } else {
+        $item = item_result($resp);
+        if ($item['code'] === 'ApiDeprecated') {
+            $message = $item['message'];
+        }
+    }
+    if ($message !== null) {
+        echo "\n";
+        fail($message !== '' ? $message : 'Buzz refused this request because it uses a deprecated API.');
+    }
+}
+
 // ── Admin login (login3, with optional MFA) ─────────────────────────────────────
 function admin_login(string $server): string
 {
+    // Refuse a deprecated endpoint host name before asking for a password.
+    check_server_url($server);
+
     while (true) {
         $username = read_admin_username();
         $password = prompt_password('Admin password', 'BUZZ_ADMIN_PASSWORD');
@@ -308,8 +350,8 @@ function admin_login(string $server): string
         // short-lived token that is presented in an Authorization: Bearer header to
         // secondfactorauthenticate, which returns the real session token.  Putting the
         // token in the request body instead is ignored: AccessDenied userId='-1'.
-        //   https://api.agilixbuzz.com/docs/entry/Command/Login3.md
-        //   https://api.agilixbuzz.com/docs/entry/Command/SecondFactorAuthenticate.md
+        //   https://interactiveapi.agilixbuzz.com/docs/entry/Command/Login3.md
+        //   https://interactiveapi.agilixbuzz.com/docs/entry/Command/SecondFactorAuthenticate.md
         if ($code === 'SecondFactorConfigurationNowRequired') {
             echo "\n  This account must configure multi-factor authentication before it can\n";
             echo "  be used.  Complete MFA setup in Buzz, then re-run this script.\n";
@@ -336,6 +378,10 @@ function admin_login(string $server): string
                 ['request' => ['cmd' => 'secondfactorauthenticate', 'otp' => $otp]], $partial);
             $code = response_code($resp);
         }
+
+        // Buzz refuses a deprecated endpoint host name or sign-in for new users and
+        // domains.  Trying again cannot help, so stop and show what to use instead.
+        fail_if_deprecated($resp);
 
         if ($code !== 'OK') {
             $msg = response_message($resp);
